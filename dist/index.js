@@ -2281,6 +2281,22 @@ function get_release_by_tag(tag, prerelease, release_name, body, octokit) {
         }
     });
 }
+function clear_release_assets(release, tag, octokit) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // Check for duplicates.
+        const assets = yield octokit.paginate(octokit.repos.listReleaseAssets, Object.assign(Object.assign({}, repo()), { release_id: release.data.id }));
+        if (assets !== undefined) {
+            for (const asset of assets) {
+                core.debug(`An asset called ${asset.name} exists in release ${tag} so we'll delete it.`);
+                yield octokit.repos.deleteReleaseAsset(Object.assign(Object.assign({}, repo()), { asset_id: asset.id }));
+            }
+        }
+        else {
+            core.debug(`No pre-existing asset found in release ${tag}. All good.`);
+        }
+        return release.data.upload_url;
+    });
+}
 function upload_to_release(release, file, asset_name, tag, overwrite, octokit) {
     return __awaiter(this, void 0, void 0, function* () {
         const stat = fs.statSync(file);
@@ -2349,12 +2365,16 @@ function run() {
                 .replace('refs/tags/', '')
                 .replace('refs/heads/', '');
             const file_glob = core.getInput('file_glob') == 'true' ? true : false;
+            const clear_release = core.getInput('clear_release') == 'true' ? true : false;
             const overwrite = core.getInput('overwrite') == 'true' ? true : false;
             const prerelease = core.getInput('prerelease') == 'true' ? true : false;
             const release_name = core.getInput('release_name');
             const body = core.getInput('body');
             const octokit = github.getOctokit(token);
             const release = yield get_release_by_tag(tag, prerelease, release_name, body, octokit);
+            if (clear_release) {
+                yield clear_release_assets(release, tag, octokit);
+            }
             if (file_glob) {
                 const files = glob.sync(file);
                 if (files.length > 0) {

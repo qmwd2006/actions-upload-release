@@ -43,6 +43,37 @@ async function get_release_by_tag(
   }
 }
 
+async function clear_release_assets(
+  release: ReleaseByTagResp | CreateReleaseResp,
+  tag: string,
+  octokit: Octokit
+): Promise<undefined | string> {
+  // Check for duplicates.
+  const assets: RepoAssetsResp = await octokit.paginate(
+    octokit.repos.listReleaseAssets,
+    {
+      ...repo(),
+      release_id: release.data.id
+    }
+  )
+
+  if (assets !== undefined) {
+    for (const asset of assets) {
+      core.debug(
+        `An asset called ${asset.name} exists in release ${tag} so we'll delete it.`
+      )
+      await octokit.repos.deleteReleaseAsset({
+        ...repo(),
+        asset_id: asset.id
+      })
+    }
+  } else {
+    core.debug(`No pre-existing asset found in release ${tag}. All good.`)
+  }
+
+  return release.data.upload_url
+}
+
 async function upload_to_release(
   release: ReleaseByTagResp | CreateReleaseResp,
   file: string,
@@ -133,6 +164,8 @@ async function run(): Promise<void> {
       .replace('refs/heads/', '')
 
     const file_glob = core.getInput('file_glob') == 'true' ? true : false
+    const clear_release =
+      core.getInput('clear_release') == 'true' ? true : false
     const overwrite = core.getInput('overwrite') == 'true' ? true : false
     const prerelease = core.getInput('prerelease') == 'true' ? true : false
     const release_name = core.getInput('release_name')
@@ -146,6 +179,10 @@ async function run(): Promise<void> {
       body,
       octokit
     )
+
+    if (clear_release) {
+      await clear_release_assets(release, tag, octokit)
+    }
 
     if (file_glob) {
       const files = glob.sync(file)
